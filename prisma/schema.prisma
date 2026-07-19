@@ -1,0 +1,348 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum Role {
+  CITIZEN
+  MODERATOR
+  ADMIN
+}
+
+enum PromiseStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  DELAYED
+  UNKNOWN
+}
+
+enum RequestCategory {
+  EDUCATION
+  HEALTH
+  EMPLOYMENT
+  TRANSPORT
+  WATER
+  ELECTRICITY
+  ENVIRONMENT
+  INFRASTRUCTURE
+  YOUTH
+  CULTURE
+  SPORTS
+  ADMINISTRATION
+}
+
+enum RequestStatus {
+  PENDING_REVIEW
+  APPROVED
+  UNDER_REVIEW
+  RESOLVED
+  REJECTED
+  MERGED
+}
+
+enum NotificationType {
+  PROMISE_UPDATE
+  REQUEST_STATUS_CHANGE
+  NEW_REPORT
+  SURVEY_LIVE
+  SYSTEM
+}
+
+// ─────────────────────────────────────────────
+// CORE / GEO
+// ─────────────────────────────────────────────
+
+model Region {
+  id             String           @id @default(cuid())
+  nameAr         String
+  slug           String           @unique
+  municipalities Municipality[]
+  promises       Promise[]
+  projects       Project[]
+  requests       CitizenRequest[]
+  createdAt      DateTime         @default(now())
+}
+
+model Municipality {
+  id        String   @id @default(cuid())
+  nameAr    String
+  regionId  String
+  region    Region   @relation(fields: [regionId], references: [id])
+  projects  Project[]
+  createdAt DateTime @default(now())
+
+  @@index([regionId])
+}
+
+// ─────────────────────────────────────────────
+// USERS
+// ─────────────────────────────────────────────
+
+model User {
+  id              String   @id @default(cuid())
+  name            String?
+  email           String   @unique
+  passwordHash    String?
+  role            Role     @default(CITIZEN)
+  emailVerified   DateTime?
+  image           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  promiseUpdates  PromiseUpdate[]
+  citizenRequests CitizenRequest[]
+  reports         Report[]
+  surveys         Survey[]
+  surveyResponses SurveyResponse[]
+  notifications   Notification[]
+  auditLogs       AuditLog[]
+
+  @@index([role])
+}
+
+// ─────────────────────────────────────────────
+// PROMISES MODULE
+// ─────────────────────────────────────────────
+
+model Party {
+  id          String            @id @default(cuid())
+  nameAr      String
+  slug        String            @unique
+  logoUrl     String?
+  description String?
+  programs    ElectionProgram[]
+  promises    Promise[]
+  createdAt   DateTime          @default(now())
+}
+
+model ElectionProgram {
+  id           String    @id @default(cuid())
+  partyId      String
+  party        Party     @relation(fields: [partyId], references: [id])
+  electionYear Int
+  title        String
+  documentUrl  String?
+  promises     Promise[]
+  createdAt    DateTime  @default(now())
+
+  @@index([partyId])
+}
+
+model Promise {
+  id            String            @id @default(cuid())
+  description   String
+  category      String
+  regionId      String?
+  region        Region?           @relation(fields: [regionId], references: [id])
+  partyId       String
+  party         Party             @relation(fields: [partyId], references: [id])
+  programId     String?
+  program       ElectionProgram?  @relation(fields: [programId], references: [id])
+  status        PromiseStatus     @default(UNKNOWN)
+  sourceUrl     String
+  evidenceUrl   String?
+  timelineStart DateTime?
+  timelineEnd   DateTime?
+  lastUpdate    DateTime          @default(now())
+  updates       PromiseUpdate[]
+  createdAt     DateTime          @default(now())
+
+  @@index([partyId])
+  @@index([status])
+  @@index([regionId])
+}
+
+model PromiseUpdate {
+  id             String        @id @default(cuid())
+  promiseId      String
+  promise        Promise       @relation(fields: [promiseId], references: [id])
+  previousStatus PromiseStatus
+  newStatus      PromiseStatus
+  sourceUrl      String
+  note           String?
+  updatedById    String
+  updatedBy      User          @relation(fields: [updatedById], references: [id])
+  createdAt      DateTime      @default(now())
+
+  @@index([promiseId])
+}
+
+// ─────────────────────────────────────────────
+// PROJECTS MODULE
+// ─────────────────────────────────────────────
+
+model Project {
+  id                 String            @id @default(cuid())
+  name               String
+  regionId           String
+  region             Region            @relation(fields: [regionId], references: [id])
+  municipalityId     String?
+  municipality       Municipality?     @relation(fields: [municipalityId], references: [id])
+  budget             Decimal           @db.Decimal(14, 2)
+  startDate          DateTime?
+  expectedCompletion DateTime?
+  progressPercent    Int               @default(0)
+  latitude           Float?
+  longitude          Float?
+  sourceUrl          String
+  documents          ProjectDocument[]
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([regionId])
+  @@index([municipalityId])
+}
+
+model ProjectDocument {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id])
+  type      String
+  url       String
+  caption   String?
+  createdAt DateTime @default(now())
+
+  @@index([projectId])
+}
+
+// ─────────────────────────────────────────────
+// CITIZEN REQUESTS MODULE
+// ─────────────────────────────────────────────
+
+model CitizenRequest {
+  id             String           @id @default(cuid())
+  title          String
+  description    String
+  category       RequestCategory
+  regionId       String?
+  region         Region?          @relation(fields: [regionId], references: [id])
+  latitude       Float?
+  longitude      Float?
+  photoUrl       String?
+  status         RequestStatus    @default(PENDING_REVIEW)
+  supportCount   Int              @default(0)
+  submittedById  String?
+  submittedBy    User?            @relation(fields: [submittedById], references: [id])
+  moderationNote String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([status])
+  @@index([category])
+  @@index([regionId])
+}
+
+// ─────────────────────────────────────────────
+// REPORTS MODULE
+// ─────────────────────────────────────────────
+
+model Report {
+  id            String       @id @default(cuid())
+  title         String
+  summary       String
+  category      String
+  tags          String[]
+  publishedById String
+  publishedBy   User         @relation(fields: [publishedById], references: [id])
+  files         ReportFile[]
+  publishedAt   DateTime     @default(now())
+
+  @@index([category])
+}
+
+model ReportFile {
+  id        String   @id @default(cuid())
+  reportId  String
+  report    Report   @relation(fields: [reportId], references: [id])
+  url       String
+  fileType  String
+  createdAt DateTime @default(now())
+
+  @@index([reportId])
+}
+
+// ─────────────────────────────────────────────
+// SURVEYS MODULE
+// ─────────────────────────────────────────────
+
+model Survey {
+  id          String           @id @default(cuid())
+  title       String
+  description String?
+  isActive    Boolean          @default(true)
+  createdById String
+  createdBy   User             @relation(fields: [createdById], references: [id])
+  questions   SurveyQuestion[]
+  createdAt   DateTime         @default(now())
+  closesAt    DateTime?
+
+  @@index([isActive])
+}
+
+model SurveyQuestion {
+  id        String           @id @default(cuid())
+  surveyId  String
+  survey    Survey           @relation(fields: [surveyId], references: [id])
+  text      String
+  options   String[]
+  order     Int              @default(0)
+  responses SurveyResponse[]
+
+  @@index([surveyId])
+}
+
+model SurveyResponse {
+  id             String         @id @default(cuid())
+  questionId     String
+  question       SurveyQuestion @relation(fields: [questionId], references: [id])
+  answer         String
+  respondentHash String
+  userId         String?
+  user           User?          @relation(fields: [userId], references: [id])
+  regionId       String?
+  createdAt      DateTime       @default(now())
+
+  @@index([questionId])
+  @@unique([questionId, respondentHash])
+}
+
+// ─────────────────────────────────────────────
+// NOTIFICATIONS & AUDIT
+// ─────────────────────────────────────────────
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id])
+  type      NotificationType
+  title     String
+  body      String
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId, read])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  actor      User     @relation(fields: [actorId], references: [id])
+  action     String
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorId])
+}
